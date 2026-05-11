@@ -12,6 +12,7 @@
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
 const OpenAI = require('openai');
+const ws = require('ws');
 
 const PORT          = process.env.PORT || 3000;
 const SUPABASE_URL  = process.env.SUPABASE_URL;
@@ -31,7 +32,11 @@ if (!MCP_BEARER) {
   console.warn('MCP_BEARER not set — service will run open. Set it before exposing publicly.');
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
+// Pass ws explicitly so we work on Node 20 and Node 22.
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession: false },
+  realtime: { transport: ws },
+});
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
 const EMBED_MODEL = 'text-embedding-3-small';
@@ -41,7 +46,6 @@ async function embed(text) {
   return r.data[0].embedding;
 }
 
-// Backfill embeddings for any rows missing them. Run on boot.
 async function backfillEmbeddings() {
   const { data, error } = await supabase
     .from('break_compliance_chunks')
@@ -68,7 +72,6 @@ async function backfillEmbeddings() {
   console.log('backfill complete');
 }
 
-// MCP tool definitions
 const TOOLS = [
   {
     name: 'search_break_compliance',
@@ -117,7 +120,6 @@ const TOOLS = [
   },
 ];
 
-// MCP handlers
 async function handleToolCall(name, args = {}) {
   args = args || {};
   if (name === 'search_break_compliance') {
@@ -186,7 +188,6 @@ async function handleToolCall(name, args = {}) {
   throw new Error(`Unknown tool: ${name}`);
 }
 
-// Minimal MCP server over HTTP — JSON-RPC 2.0 style.
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
@@ -195,7 +196,7 @@ app.get('/', (req, res) => {
 });
 
 function checkAuth(req, res) {
-  if (!MCP_BEARER) return true; // open mode
+  if (!MCP_BEARER) return true;
   const h = req.headers.authorization || '';
   if (h === `Bearer ${MCP_BEARER}`) return true;
   res.status(401).json({ error: 'unauthorized' });
@@ -209,7 +210,7 @@ app.post('/mcp', async (req, res) => {
     if (method === 'initialize') {
       return res.json({
         jsonrpc: '2.0', id,
-        result: { protocolVersion: '2024-11-05', serverInfo: { name: 'break-compliance-mcp', version: '0.1.0' }, capabilities: { tools: {} } },
+        result: { protocolVersion: '2024-11-05', serverInfo: { name: 'break-compliance-mcp', version: '0.1.1' }, capabilities: { tools: {} } },
       });
     }
     if (method === 'tools/list') {
