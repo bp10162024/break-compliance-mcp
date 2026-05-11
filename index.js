@@ -1,11 +1,4 @@
 // Break Compliance MCP — exposes the PBI 12985 knowledge base as MCP tools.
-// Tools:
-//   search_break_compliance(query, limit?, chunk_type?)
-//   get_break_compliance_by_slug(slug)
-//   list_break_compliance_slugs(chunk_type?)
-//   get_open_questions()
-//   get_case_law()
-//   get_scenarios()
 // Auth via Authorization: Bearer ${MCP_BEARER}.
 // Health check at GET /.
 
@@ -16,29 +9,19 @@ const ws = require('ws');
 
 const PORT          = process.env.PORT || 3000;
 const SUPABASE_URL  = process.env.SUPABASE_URL;
-const SUPABASE_KEY  = process.env.SUPABASE_KEY; // service-role
+const SUPABASE_KEY  = process.env.SUPABASE_KEY;
 const OPENAI_API_KEY= process.env.OPENAI_API_KEY;
-const MCP_BEARER    = process.env.MCP_BEARER;   // bearer token clients must present
+const MCP_BEARER    = process.env.MCP_BEARER;
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error('SUPABASE_URL and SUPABASE_KEY required');
-  process.exit(1);
-}
-if (!OPENAI_API_KEY) {
-  console.error('OPENAI_API_KEY required');
-  process.exit(1);
-}
-if (!MCP_BEARER) {
-  console.warn('MCP_BEARER not set — service will run open. Set it before exposing publicly.');
-}
+if (!SUPABASE_URL || !SUPABASE_KEY) { console.error('SUPABASE_URL and SUPABASE_KEY required'); process.exit(1); }
+if (!OPENAI_API_KEY) { console.error('OPENAI_API_KEY required'); process.exit(1); }
+if (!MCP_BEARER) { console.warn('MCP_BEARER not set — service will run open. Set it before exposing publicly.'); }
 
-// Pass ws explicitly so we work on Node 20 and Node 22.
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false },
   realtime: { transport: ws },
 });
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-
 const EMBED_MODEL = 'text-embedding-3-small';
 
 async function embed(text) {
@@ -73,51 +56,12 @@ async function backfillEmbeddings() {
 }
 
 const TOOLS = [
-  {
-    name: 'search_break_compliance',
-    description: 'Semantic search over the Buddy Punch Break Compliance knowledge base (PBI 12985). Returns the most relevant chunks (features, scenarios, decisions, case law, open questions) for a free-text query. Use this for any question about the design.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Natural-language query, e.g. "what happens to premium when a punch is deleted"' },
-        limit: { type: 'integer', description: 'Max results to return (default 6, max 20)', default: 6 },
-        chunk_type: { type: 'string', enum: ['feature','scenario','case_law','mockup','decision','open_question','section','reference'], description: 'Restrict to one chunk type. Omit for all types.' },
-      },
-      required: ['query'],
-    },
-  },
-  {
-    name: 'get_break_compliance_by_slug',
-    description: 'Retrieve a single Break Compliance chunk by its slug. Use after search_break_compliance returns a slug you want to read in full.',
-    inputSchema: {
-      type: 'object',
-      properties: { slug: { type: 'string', description: 'Slug, e.g. "feature-premium-pay-auto-add" or "scenario-19"' } },
-      required: ['slug'],
-    },
-  },
-  {
-    name: 'list_break_compliance_slugs',
-    description: 'List all Break Compliance chunks by slug and title. Useful to enumerate all features, scenarios, case-law entries, or open questions.',
-    inputSchema: {
-      type: 'object',
-      properties: { chunk_type: { type: 'string', enum: ['feature','scenario','case_law','mockup','decision','open_question','section','reference'] } },
-    },
-  },
-  {
-    name: 'get_open_questions',
-    description: 'Return all open questions for the Break Compliance build, split into case-law-driven and business-choice buckets.',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'get_case_law',
-    description: 'Return all California case-law constraints relevant to the Break Compliance build (Brinker, Gerard, Donohue, Ferra, Naranjo, Lab Codes, IWC Wage Orders).',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'get_scenarios',
-    description: 'Return all 22 scenarios from Section 9 — what happens for each admin/employee/system action. Each scenario covers Settings / Timecard / Reports / Employee surfaces.',
-    inputSchema: { type: 'object', properties: {} },
-  },
+  { name: 'search_break_compliance', description: 'Semantic search over the Buddy Punch Break Compliance knowledge base (PBI 12985). Returns the most relevant chunks (features, scenarios, decisions, case law, open questions) for a free-text query. Use this for any question about the design.', inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 6 }, chunk_type: { type: 'string', enum: ['feature','scenario','case_law','mockup','decision','open_question','section','reference'] } }, required: ['query'] } },
+  { name: 'get_break_compliance_by_slug', description: 'Retrieve a single Break Compliance chunk by its slug.', inputSchema: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] } },
+  { name: 'list_break_compliance_slugs', description: 'List all Break Compliance chunks by slug and title.', inputSchema: { type: 'object', properties: { chunk_type: { type: 'string', enum: ['feature','scenario','case_law','mockup','decision','open_question','section','reference'] } } } },
+  { name: 'get_open_questions', description: 'Return all open questions for the Break Compliance build.', inputSchema: { type: 'object', properties: {} } },
+  { name: 'get_case_law', description: 'Return all California case-law constraints relevant to the Break Compliance build.', inputSchema: { type: 'object', properties: {} } },
+  { name: 'get_scenarios', description: 'Return all 22 scenarios from Section 9.', inputSchema: { type: 'object', properties: {} } },
 ];
 
 async function handleToolCall(name, args = {}) {
@@ -128,15 +72,10 @@ async function handleToolCall(name, args = {}) {
     const limit = Math.min(Math.max(parseInt(args.limit) || 6, 1), 20);
     const chunkType = args.chunk_type || null;
     const queryEmbedding = await embed(query);
-    const { data, error } = await supabase.rpc('search_break_compliance', {
-      query_embedding: queryEmbedding,
-      match_count: limit,
-      filter_chunk_type: chunkType,
-    });
+    const { data, error } = await supabase.rpc('search_break_compliance', { query_embedding: queryEmbedding, match_count: limit, filter_chunk_type: chunkType });
     if (error) throw new Error(`search failed: ${error.message}`);
     return { results: data || [] };
   }
-
   if (name === 'get_break_compliance_by_slug') {
     const slug = String(args.slug || '').trim();
     if (!slug) throw new Error('slug is required');
@@ -145,46 +84,29 @@ async function handleToolCall(name, args = {}) {
     if (!data || data.length === 0) return { found: false };
     return { found: true, chunk: data[0] };
   }
-
   if (name === 'list_break_compliance_slugs') {
     const chunkType = args.chunk_type || null;
     const { data, error } = await supabase.rpc('list_break_compliance_slugs', { filter_chunk_type: chunkType });
     if (error) throw new Error(`list failed: ${error.message}`);
     return { items: data || [] };
   }
-
   if (name === 'get_open_questions') {
-    const { data, error } = await supabase
-      .from('break_compliance_chunks')
-      .select('slug, title, content, metadata')
-      .eq('chunk_type', 'open_question')
-      .order('slug');
+    const { data, error } = await supabase.from('break_compliance_chunks').select('slug, title, content, metadata').eq('chunk_type', 'open_question').order('slug');
     if (error) throw new Error(error.message);
     const caseLawDriven = (data || []).filter(r => (r.metadata || {}).category === 'case-law-driven');
     const businessChoice = (data || []).filter(r => (r.metadata || {}).category === 'business-choice');
     return { case_law_driven: caseLawDriven, business_choice: businessChoice };
   }
-
   if (name === 'get_case_law') {
-    const { data, error } = await supabase
-      .from('break_compliance_chunks')
-      .select('slug, title, content, metadata, source_section')
-      .eq('chunk_type', 'case_law')
-      .order('slug');
+    const { data, error } = await supabase.from('break_compliance_chunks').select('slug, title, content, metadata, source_section').eq('chunk_type', 'case_law').order('slug');
     if (error) throw new Error(error.message);
     return { items: data || [] };
   }
-
   if (name === 'get_scenarios') {
-    const { data, error } = await supabase
-      .from('break_compliance_chunks')
-      .select('slug, title, content, metadata')
-      .eq('chunk_type', 'scenario')
-      .order('slug');
+    const { data, error } = await supabase.from('break_compliance_chunks').select('slug, title, content, metadata').eq('chunk_type', 'scenario').order('slug');
     if (error) throw new Error(error.message);
     return { items: data || [] };
   }
-
   throw new Error(`Unknown tool: ${name}`);
 }
 
@@ -207,23 +129,13 @@ app.post('/mcp', async (req, res) => {
   if (!checkAuth(req, res)) return;
   const { id, method, params } = req.body || {};
   try {
-    if (method === 'initialize') {
-      return res.json({
-        jsonrpc: '2.0', id,
-        result: { protocolVersion: '2024-11-05', serverInfo: { name: 'break-compliance-mcp', version: '0.1.1' }, capabilities: { tools: {} } },
-      });
-    }
-    if (method === 'tools/list') {
-      return res.json({ jsonrpc: '2.0', id, result: { tools: TOOLS } });
-    }
+    if (method === 'initialize') return res.json({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'break-compliance-mcp', version: '0.1.2' }, capabilities: { tools: {} } } });
+    if (method === 'tools/list') return res.json({ jsonrpc: '2.0', id, result: { tools: TOOLS } });
     if (method === 'tools/call') {
       const name = params?.name;
       const args = params?.arguments || {};
       const result = await handleToolCall(name, args);
-      return res.json({
-        jsonrpc: '2.0', id,
-        result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] },
-      });
+      return res.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } });
     }
     res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
   } catch (e) {
@@ -244,7 +156,8 @@ app.post('/admin/backfill', async (req, res) => {
   res.json({ ok: true, status: 'backfill scheduled' });
 });
 
-app.listen(PORT, () => {
-  console.log(`break-compliance-mcp listening on :${PORT}`);
+// Explicitly bind to 0.0.0.0 — Railway edge can't reach a service bound to ::1.
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`break-compliance-mcp listening on 0.0.0.0:${PORT}`);
   backfillEmbeddings().catch(e => console.error('initial backfill failed', e));
 });
